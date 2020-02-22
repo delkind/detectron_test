@@ -9,7 +9,7 @@ import torch
 from detectron2.config import get_cfg
 from detectron2.data import DatasetCatalog, MetadataCatalog, build_detection_test_loader, build_detection_train_loader, \
     DatasetMapper
-from detectron2.engine import DefaultTrainer
+from detectron2.engine import DefaultTrainer, DefaultPredictor
 from detectron2.model_zoo import model_zoo
 from detectron2.structures import BoxMode
 from detectron2.data import transforms as T
@@ -45,10 +45,10 @@ class MyDatasetMapper:
         self.tfm_gens = utils.build_transform_gen(cfg, is_train)
 
         # fmt: off
-        self.img_format     = cfg.INPUT.FORMAT
-        self.mask_on        = cfg.MODEL.MASK_ON
-        self.mask_format    = cfg.INPUT.MASK_FORMAT
-        self.keypoint_on    = cfg.MODEL.KEYPOINT_ON
+        self.img_format = cfg.INPUT.FORMAT
+        self.mask_on = cfg.MODEL.MASK_ON
+        self.mask_format = cfg.INPUT.MASK_FORMAT
+        self.keypoint_on = cfg.MODEL.KEYPOINT_ON
         self.load_proposals = cfg.MODEL.LOAD_PROPOSALS
         # fmt: on
         if self.keypoint_on and is_train:
@@ -79,7 +79,6 @@ class MyDatasetMapper:
         image = utils.read_image(dataset_dict["file_name"], format=self.img_format)
         image = image[:, :image.shape[0]]
         utils.check_image_size(dataset_dict, image)
-
 
         if "annotations" not in dataset_dict:
             image, transforms = T.apply_transform_gens(
@@ -207,31 +206,32 @@ def get_balloon_dicts(img_dir):
     return dataset_dicts
 
 
-for d in ["train", "val"]:
-    DatasetCatalog.register("balloon_" + d, lambda d=d: get_balloon_dicts("images/"))
-    MetadataCatalog.get("balloon_" + d).set(thing_classes=["balloon"])
+if __name__ == '__main__':
+    for d in ["train", "val"]:
+        DatasetCatalog.register("balloon_" + d, lambda d=d: get_balloon_dicts("images/"))
+        MetadataCatalog.get("balloon_" + d).set(thing_classes=["balloon"])
 
-balloon_metadata = MetadataCatalog.get("balloon_train")
+    balloon_metadata = MetadataCatalog.get("balloon_train")
 
-dataset_dicts = get_balloon_dicts("images")
+    dataset_dicts = get_balloon_dicts("images")
 
+    cfg = get_cfg()
+    cfg.merge_from_file(model_zoo.get_config_file("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"))
+    cfg = get_cfg()
+    cfg.merge_from_file(model_zoo.get_config_file("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"))
+    cfg.DATASETS.TRAIN = ("balloon_train",)
+    cfg.DATASETS.TEST = ()
+    cfg.DATALOADER.NUM_WORKERS = 2
+    cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url(
+        "COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")  # Let training initialize from model zoo
+    cfg.SOLVER.IMS_PER_BATCH = 2
+    cfg.SOLVER.BASE_LR = 0.00025  # pick a good LR
+    cfg.SOLVER.MAX_ITER = 10000  # 300 iterations seems good enough for this toy dataset; you may need to train longer for a practical dataset
+    cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 512  # faster, and good enough for this toy dataset (default: 512)
+    cfg.MODEL.ROI_HEADS.NUM_CLASSES = 1  # only has one class (ballon)
+    cfg.MODEL.DEVICE = 'cpu'
 
-cfg = get_cfg()
-cfg.merge_from_file(model_zoo.get_config_file("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"))
-cfg = get_cfg()
-cfg.merge_from_file(model_zoo.get_config_file("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"))
-cfg.DATASETS.TRAIN = ("balloon_train",)
-cfg.DATASETS.TEST = ()
-cfg.DATALOADER.NUM_WORKERS = 2
-cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")  # Let training initialize from model zoo
-cfg.SOLVER.IMS_PER_BATCH = 2
-cfg.SOLVER.BASE_LR = 0.00025  # pick a good LR
-cfg.SOLVER.MAX_ITER = 10000    # 300 iterations seems good enough for this toy dataset; you may need to train longer for a practical dataset
-cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 512   # faster, and good enough for this toy dataset (default: 512)
-cfg.MODEL.ROI_HEADS.NUM_CLASSES = 1  # only has one class (ballon)
-cfg.MODEL.DEVICE = 'cpu'
-
-os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
-trainer = Trainer(cfg)
-trainer.resume_or_load(resume=False)
-trainer.train()
+    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
+    trainer = Trainer(cfg)
+    trainer.resume_or_load(resume=False)
+    trainer.train()
