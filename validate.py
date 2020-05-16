@@ -1,11 +1,14 @@
 import os
 
+import cv2
 from detectron2 import model_zoo
 from detectron2.config import get_cfg
 from detectron2.data import DatasetCatalog, MetadataCatalog
 from detectron2.engine import DefaultPredictor
 from detectron2.evaluation import COCOEvaluator, inference_on_dataset
 from detectron2.data import build_detection_test_loader
+from detectron2.utils.visualizer import Visualizer, ColorMode
+import matplotlib.pyplot as plt
 
 from train import get_balloon_dicts, MyDatasetMapper
 
@@ -33,6 +36,30 @@ if __name__ == '__main__':
     cfg.DATASETS.TEST = ("balloon_val",)
     predictor = DefaultPredictor(cfg)
 
-    evaluator = COCOEvaluator("balloon_val", cfg, False, output_dir="./output/")
-    val_loader = build_detection_test_loader(cfg, "balloon_val", MyDatasetMapper(cfg, False))
-    inference_on_dataset(predictor.model, val_loader, evaluator)
+    # evaluator = COCOEvaluator("balloon_val", cfg, False, output_dir="./output/")
+    # val_loader = build_detection_test_loader(cfg, "balloon_val", MyDatasetMapper(cfg, False))
+    # inference_on_dataset(predictor.model, val_loader, evaluator)
+
+    dataset_dicts = get_balloon_dicts("images")
+
+    balloon_metadata = MetadataCatalog.get("balloon_train")
+
+    for d in dataset_dicts:
+        f, axarr = plt.subplots(1, 2)
+        im = cv2.imread(d["file_name"])[:312, :312, :]
+        outputs = predictor(im)
+        v = Visualizer(im[:, :, ::-1],
+                       metadata=balloon_metadata,
+                       scale=0.8,
+                       instance_mode=ColorMode.IMAGE_BW  # remove the colors of unsegmented pixels
+                       )
+        preds = outputs["instances"].to("cpu")
+        preds.remove('pred_classes')
+        v = v.draw_instance_predictions(outputs["instances"].to("cpu"))
+        axarr[0].imshow(v.get_image()[:, :, ::-1])
+
+        v = Visualizer(im[:, :, ::-1], metadata=balloon_metadata, scale=0.5)
+        v = v.draw_dataset_dict(d)
+        axarr[1].imshow(v.get_image()[:, :, ::-1])
+
+        plt.show()
